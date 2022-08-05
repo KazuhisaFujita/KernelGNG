@@ -1,6 +1,6 @@
 #---------------------------------------
 #Since : Jun/17/2012
-#Update: 2022/08/03
+#Update: 2022/08/05
 # -*- coding: utf-8 -*-
 #---------------------------------------
 from PIL import Image
@@ -49,6 +49,9 @@ class GNG(object):
 
         # initialize the two units
         self.units[0], self.units[1] = data[np.random.permutation(data.shape[0])[[0, 1]]]
+
+        self.units[0] += np.random.rand(self.I_DIM)*0.1
+        self.units[1] += np.random.rand(self.I_DIM)*0.1
 
         self.g_units.add_node(0)
         self.g_units.add_node(1)
