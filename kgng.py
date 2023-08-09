@@ -17,8 +17,10 @@ import matplotlib.pyplot as plt
 from gng import GNG
 
 class kernel_GNG(GNG):
-    def __init__(self, num = 25, end = 100000, lam = 100, ew = 0.1, en = 0.01, amax = 20.0, alpha = 0.5, beta = 0.9,  kernel_func = "non", param = 0.1):
+    def __init__(self, num = 25, end = 100000, lam = 100, ew = 0.1, en = 0.01, amax = 20.0, alpha = 0.5, beta = 0.9,  kernel_func = "gng", param = 0.1):
         super().__init__(num, end, lam, ew, en, amax, alpha, beta)
+
+        self.epsilon = 1e-7
 
         self.kernel_func = kernel_func
         self.param = param
@@ -52,11 +54,11 @@ class kernel_GNG(GNG):
         if self.kernel_func == "rbf":
             return (x - unit) / (self.param**2) * np.exp(- np.linalg.norm(x - unit)**2/ (2 * (self.param**2)))
         elif self.kernel_func == "lap":
-            return (x - unit) * np.exp(-np.linalg.norm(x - unit)/self.param) / self.param / np.linalg.norm(x - unit)
+            return (x - unit) * np.exp(-np.linalg.norm(x - unit)/self.param) / self.param / (np.linalg.norm(x - unit)  + self.epsilon) # avoid zero-devided
         elif self.kernel_func == "pol":
             return - self.param * (unit * ((np.dot(unit, unit) + 1)**(self.param - 1)) - x * ((np.dot(unit, x) + 1)**(self.param - 1)))
         elif self.kernel_func == "mq":
-            return - (x - unit) / np.sqrt(np.linalg.norm(x - unit)**2 + self.param**2)
+            return 2 * (x - unit) / np.sqrt(np.linalg.norm(x - unit)**2 + self.param**2)
         elif self.kernel_func == "imq":
             return (x - unit) / ((np.linalg.norm(x - unit)**2 + self.param**2)**1.5)
         elif self.kernel_func == "pow":

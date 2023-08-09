@@ -1,6 +1,6 @@
 #---------------------------------------
 #Since : Jun/17/2012
-#Update: 2022/08/05
+#Update: 2023/05/17
 # -*- coding: utf-8 -*-
 #---------------------------------------
 from PIL import Image
@@ -50,12 +50,20 @@ class GNG(object):
         # initialize the two units
         self.units[0], self.units[1] = data[np.random.permutation(data.shape[0])[[0, 1]]]
 
-        self.units[0] += np.random.rand(self.I_DIM)*0.1
-        self.units[1] += np.random.rand(self.I_DIM)*0.1
+        # self.units[0] += np.random.rand(self.I_DIM)*0.1
+        # self.units[1] += np.random.rand(self.I_DIM)*0.1
 
         self.g_units.add_node(0)
         self.g_units.add_node(1)
         self.g_units.add_edge(0, 1, weight=0)
+
+    def normalize(self, data):
+        data -= np.mean(data, axis = 0)
+        #data /= np.max(np.linalg.norm(data, axis=1))
+        #data /= np.amax(data, axis = 0)
+        #data = data / np.std(np.linalg.norm(data, axis=1))
+        data = data / (np.std(data, axis=0) + 0.0000001)
+        return data
 
     def dists(self, x, units):
         #calculate distance
@@ -63,11 +71,6 @@ class GNG(object):
 
     def dw(self, x, unit):
         return x - unit
-
-    def normalize(self, data):
-        data -= np.mean(data, axis = 0)
-        data /= np.max(np.linalg.norm(data, axis=1))
-        return data
 
     def TotalError(self, data):
         total_error = 0
@@ -81,105 +84,88 @@ class GNG(object):
             total_error += np.min(np.linalg.norm(self.units - i, axis=1)**2)
         return total_error/data.shape[0]
 
+    def learn(self,x, t):
+
+        # Find the nearest and the second nearest neighbors, s_1 s_2.
+        existing_units = np.array(self.g_units.nodes())
+        dists = self.dists(x, self.units[existing_units])
+        s_1, s_2 = existing_units[dists.argsort()[[0,1]]]
+
+        # Add the distance between the input and the nearest neighbor s_1.
+        self.sumerror[s_1] += dists[existing_units == s_1]**2
+
+        # Move the nearest neighbor s_1 towards the input.
+        self.units[s_1] += self.Ew * self.dw(x, self.units[s_1])
+
+        if self.g_units.has_edge(s_1, s_2):
+            # Set the age of the edge of s_1 and s_2 to 0.
+            self.g_units[s_1][s_2]['weight'] = 0
+        else:
+            # Connect NN and second NN with each other.
+            self.g_units.add_edge(s_1,s_2,weight = 0)
+
+        for i in list(self.g_units.neighbors(s_1)):
+            # Increase the age of all the edges emanating from the nearest neighbor s_1
+            self.g_units[s_1][i]['weight'] += 1
+
+            # Move the neighbors of s_1 towards the input.
+            self.units[i] += self.En  * self.dw(x, self.units[i])
+
+            if self.g_units[s_1][i]['weight'] > self.AMAX:
+                self.g_units.remove_edge(s_1,i)
+            if self.g_units.degree(i) == 0:
+                self.g_units.remove_node(i)
+                self.units[i] += float("inf")
+                self.sumerror[i] = 0
+                #end set
+
+        # Every lambda, insert a new neuron.
+        if t % self.lam == 0:
+            count = 0
+            nodes = list(self.g_units.nodes())
+
+            # Find the neuron q with the maximum error.
+            q = nodes[self.sumerror[nodes].argmax()]
+
+            # Find the neighbor neuron f with maximum error.
+            neighbors = list(self.g_units.neighbors(q))
+            se = self.sumerror[neighbors]
+            f = neighbors[np.argmax(se)]
+
+            for i in range(self.MAX_NUM):
+                if self.units[i][0] == float("inf"):
+                    # Insert a new neuron r.
+                    self.units[i] = 0.5 * (self.units[q] + self.units[f])
+                    self.g_units.add_node(i)
+
+                    # Insert new edges between the neuron and q and f.
+                    self.g_units.add_edge(i, q, weight=0)
+                    self.g_units.add_edge(i, f, weight=0)
+
+                    # Remove the edges between q and f.
+                    self.g_units.remove_edge(q, f)
+
+                    # Decrease the error of q and f.
+                    self.sumerror[q] *= self.Alpha
+                    self.sumerror[f] *= self.Alpha
+
+                    # Set the error of the new neuron to that of q
+                    self.sumerror[i] = self.sumerror[q]
+                    break
+
+        # Decrease all errors.
+        self.sumerror *= self.Beta
+
     def train(self, data):
         self.initialize_units(data)
 
-        units = self.units
-        g_units = self.g_units
-        sumerror = self.sumerror
-
-        count = 0
-        oE = 0
-        for t in range(self.END):
+        for t in range(1, self.END+1):
 
             # Generate a random input.
             num = np.random.randint(self.N)
             x = data[num]
 
-            # Find the nearest and the second nearest neighbors, s_1 s_2.
-            existing_units = np.array(g_units.nodes())
-            dists = self.dists(x, units[existing_units])
-            s_1, s_2 = existing_units[dists.argsort()[[0,1]]]
-
-            # Add the distance between the input and the nearest neighbor s_1.
-            sumerror[s_1] += dists[existing_units == s_1]
-
-            # Move the nearest neighbor s_1 towards the input.
-            units[s_1] += self.Ew * self.dw(x, units[s_1])
-
-            if g_units.has_edge(s_1, s_2):
-                # Set the age of the edge of s_1 and s_2 to 0.
-                g_units[s_1][s_2]['weight'] = 0
-            else:
-                # Connect NN and second NN with each other.
-                g_units.add_edge(s_1,s_2,weight = 0)
-
-            for i in list(g_units.neighbors(s_1)):
-                # Increase the age of all the edges emanating from the nearest neighbor s_1
-                g_units[s_1][i]['weight'] += 1
-
-                # Move the neighbors of s_1 towards the input.
-                units[i] += self.En  * self.dw(x, units[i])
-
-                # Remove edge
-                if g_units[s_1][i]['weight'] > self.AMAX:
-                    g_units.remove_edge(s_1,i)
-                if g_units.degree(i) == 0:
-                    g_units.remove_node(i)
-                    units[i] += float("inf")
-                    sumerror[i] = 0
-
-            # Every lambda, insert a new neuron.
-            count += 1
-            if count == self.lam:
-                count = 0
-                nodes = list(g_units.nodes())
-
-                # Find the neuron q with the maximum error.
-                q = nodes[sumerror[nodes].argmax()]
-
-                # Find the neighbor neuron f with maximum error.
-                neighbors = list(g_units.neighbors(q))
-                se = sumerror[neighbors]
-                f = neighbors[np.argmax(se)]
-
-                for i in range(self.MAX_NUM):
-                    if units[i][0] == float("inf"):
-                        # Insert a new neuron r.
-                        units[i] = 0.5 * (units[q] + units[f])
-                        g_units.add_node(i)
-
-                        # Insert new edges between the neuron and q and f.
-                        g_units.add_edge(i, q, weight=0)
-                        g_units.add_edge(i, f, weight=0)
-
-                        # Remove the edges between q and f.
-                        g_units.remove_edge(q, f)
-
-                        # Decrease the error of q and f.
-                        sumerror[q] *= self.Alpha
-                        sumerror[f] *= self.Alpha
-
-                        # Set the error of the new neuron to that of q
-                        sumerror[i] = sumerror[q]
-                        break
-
-            # Decrease all errors.
-            sumerror *= self.Beta
-
-
-        nodes = np.array(g_units.nodes)
-        temp_units = np.zeros((nodes.size, self.I_DIM))
-        temp_g_units = nx.Graph()
-        for i in range(nodes.size):
-            temp_units[i] = units[nodes[i]]
-            temp_g_units.add_node(i)
-        for edge in g_units.edges:
-            temp_g_units.add_edge(np.argwhere(nodes == edge[0]).item(0), np.argwhere(nodes == edge[1]).item(0))
-
-        self.units = temp_units
-        self.g_units = temp_g_units
-
+            self.learn(x, t)
 
 if __name__ == '__main__':
 
